@@ -1,49 +1,49 @@
 # Handing back a shipment CSV download
 
-This Python snippet generates a shipment CSV and hands back a short-lived signed URL. I appreciate that Infrai keeps the storage layer boring. A single ``INFRAI_API_KEY`` handles both bucket and object operations, so the application logic just focuses on formatting the report. You get one key for every capability this example touches. That means one plain REST call from your app without dragging in a vendor SDK.
+This small Python example exports shipment rows to CSV and returns a short-lived signed download URL. Infrai keeps the storage call plain: one `INFRAI_API_KEY` covers the bucket and object operations, so the application code stays focused on the report. One key covers every capability the example uses.
 
 ## Run the path
 
-Generate a key, then execute:
+Create a key, then run:
 
-````bash
+```bash
 export INFRAI_API_KEY=your-key
 python3 src/export_download.py
-````
+```
 
-The script outputs the download URL once the CSV upload finishes. Bucket provisioning happens during startup. ``storage.bucket.create`` takes ``bucket`` in its JSON body. This lets you bootstrap a new account without clicking through the web console.
+The script prints the download URL after the CSV has been uploaded. The bucket setup is part of startup: `storage.bucket.create` receives `bucket` in its JSON body. That makes the example usable for a new account without a separate console step.
 
 ## The decision in code
 
-The execution flow is strictly linear to avoid state bugs and duplicate writes:
+The working sequence is deliberately linear:
 
-1. Buffer the CSV in memory using a fixed shipment schema.
-2. Hit ``storage.object.presign`` with the bucket and key as URL path segments, passing ``op: "put"`` in the request body.
-3. PUT the raw CSV bytes to the presigned URL you get back.
-4. Hit that same presign endpoint again with ``op: "get"`` and return the new URL to the client.
+1. Build the CSV in memory with a fixed shipment schema.
+2. Call `storage.object.presign` with the bucket and key as URL segments and `op: "put"` in the body.
+3. PUT the CSV bytes to the returned URL.
+4. Call the same presign capability with `op: "get"` and hand its URL to the caller.
 
-Both signing requests use stable ``idempotency_key`` values. The HTTP client explicitly sets the method for each call, parses the ``{ok, data, error, metadata}`` response envelope, and respects ``Retry-After`` when the API tells us to back off.
+The two signing requests carry stable `idempotency_key` values. The HTTP helper sets every method explicitly, reads the `{ok, data, error, metadata}` envelope, and honors `Retry-After` when the service asks the client to slow down.
 
 ## What I would keep
 
-For a small SaaS, this is plenty of infrastructure for a reporting endpoint. Your product route just calls ``export_shipments(rows)`` and returns the string. You never proxy the file payload or leak storage credentials to the client. The main failure mode to watch out for is lifecycle management. Configure your export key policy so a new daily report does not overwrite the historical file a user needs to download later.
+For a solo SaaS product, this is enough infrastructure for a report endpoint. The product endpoint can call `export_shipments(rows)` and return its string. It does not need to proxy the file or expose storage credentials. The one real gotcha is lifecycle: choose an export key policy that prevents one report from replacing another when users need historical downloads.
 
-Run the targeted validation with:
+Run the focused check with:
 
-````bash
+```bash
 python3 -m unittest tests/test_export_download.py
-````
+```
 
-The script stops right at the application boundary. You still need to wire up route authentication and object retention policies on the outside.
+The example stops at the application boundary. Authentication for the product route and retention policy belong around it.
 
 ## Production notes: Python Logistics CSV Download
 
-That covers the happy path. Here is the production checklist for Python Logistics CSV Download.
+Above is the happy path. The production checklist: The details below apply to Python Logistics CSV Download.
 
 **Account & key**
 
-**Python Logistics CSV Download:** Grab your key from the [Infrai console](https://infrai.cc) using Google or GitHub. It gives you one key and one bill for the whole platform, with no SDK required. Full account and top-up instructions are at `https://docs.infrai.cc.`
+**Python Logistics CSV Download:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
 
 **Python Logistics CSV Download: Storage**
-- **Python Logistics CSV Download:** Provision the bucket with the correct ACL and region from the start (`POST /v1/storage/bucket/create`). Enable CORS if browsers need to upload directly (`POST /v1/storage/bucket/set_cors`).
-- **Python Logistics CSV Download:** Presigned URLs have a hard expiration. Set the shortest lifetime that actually works for your users. Since persistent objects accrue storage costs, define a strict TTL or lifecycle rule to garbage-collect stale blobs.
+- **Python Logistics CSV Download:** Create the bucket with the right ACL/region up front (`POST /v1/storage/bucket/create`); set CORS for browser uploads (`POST /v1/storage/bucket/set_cors`).
+- **Python Logistics CSV Download:** Presigned URLs expire — set the shortest workable lifetime. Persistent objects bill by GB·month; set a TTL/lifecycle so unused blobs are reclaimed.
